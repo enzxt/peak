@@ -1,0 +1,17 @@
+{
+  "name": "peak",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Public reward and wallet transparency tooling for peak.",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc --noEmit -p tsconfig.json",
+    "app": "npm.cmd run build && node dist/app/server.js",
+    "wallet:test": "npm.cmd run build && node dist/scripts/test-dev-wallet.js",
+    "wallet:help": "npm.cmd run build && node dist/scripts/test-dev-wallet.js --help"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "typescript": "^5.9.3"
+  }
+}

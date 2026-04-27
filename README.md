@@ -27,6 +27,7 @@ Version 1 focuses on a narrow system we can explain clearly and operate reliably
 - [docs/vision.md](docs/vision.md) explains the product direction and public positioning.
 - [docs/tokenomics.md](docs/tokenomics.md) defines the v1 reward model and design constraints.
 - [docs/roadmap.md](docs/roadmap.md) outlines the phased rollout and public development plan.
+- [docs/tools.md](docs/tools.md) tracks the working query tools saved in this repo.
 
 ## Public build philosophy
 
@@ -38,3 +39,8 @@ This repository is intended to be public. The goal is to show that `peak` is bei
 - transparent iteration
 
 As the project evolves, this repo should include both the app and the underlying reward/tooling logic.
+
+## Local config
+
+RPC keys and other local secrets should stay in `.env`, which is ignored by git.
+Use [.env.example](.env.example) as the public template.
