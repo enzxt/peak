@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
-export type SnapshotQueryMode = "top-holders" | "airdrop-filter" | "reward-summary";
+export type SnapshotQueryMode = "top-holders" | "airdrop-filter";
 export type SnapshotSource = "cache" | "live-rpc";
 
 export interface QuerySnapshotPayload<TResult> {
@@ -28,13 +28,13 @@ interface QuerySnapshotKeyInput {
   wallet?: string | null;
   limit: number;
   minimumAmount?: number;
+  uniqueRecipients?: boolean;
 }
 
 const DEFAULT_FRESHNESS_MS = 4 * 60 * 60 * 1000;
 const FRESHNESS_BY_MODE: Record<SnapshotQueryMode, number> = {
   "top-holders": DEFAULT_FRESHNESS_MS,
   "airdrop-filter": DEFAULT_FRESHNESS_MS,
-  "reward-summary": DEFAULT_FRESHNESS_MS,
 };
 
 function sanitizeSegment(value: string): string {
@@ -55,11 +55,13 @@ function buildCacheKey(input: QuerySnapshotKeyInput): string {
   const minAmount = Number(input.minimumAmount ?? 0);
 
   return [
+    "v2",
     input.mode,
     `mint-${sanitizeSegment(input.mint)}`,
     `wallet-${wallet}`,
     `limit-${input.limit}`,
     `min-${Number.isFinite(minAmount) ? minAmount : 0}`,
+    `unique-${input.uniqueRecipients ? "1" : "0"}`,
   ].join("__");
 }
 

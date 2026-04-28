@@ -4,6 +4,7 @@ export interface TopHolderRow {
   rank: number;
   holder: string;
   amountHeld: number;
+  label?: string;
 }
 
 export interface FetchTopHoldersOptions {
@@ -17,12 +18,16 @@ export async function fetchTopHolders(
 ): Promise<TopHolderRow[]> {
   const holders = await fetchTopTokenHolders(mint, {
     rpcUrl: options.rpcUrl,
-    limit: options.limit ?? 25,
+    limit: Math.min(50, (options.limit ?? 25) + 15),
   });
 
-  return holders.map((holder, index) => ({
-    rank: index + 1,
-    holder: holder.owner,
-    amountHeld: holder.amountUi,
-  }));
+  return holders
+    .filter((holder) => holder.holderType === "user")
+    .slice(0, options.limit ?? 25)
+    .map((holder, index) => ({
+      rank: index + 1,
+      holder: holder.owner,
+      amountHeld: holder.amountUi,
+      label: holder.label,
+    }));
 }

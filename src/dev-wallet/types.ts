@@ -72,4 +72,7 @@ export interface TopTokenHolderRecord {
   amountRaw: string;
   amountUi: number;
   decimals: number;
+  ownerProgramId: string;
+  holderType: "user" | "program";
+  label?: string;
 }

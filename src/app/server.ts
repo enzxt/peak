@@ -8,7 +8,6 @@ loadLocalEnv();
 const PORT = Number(process.env.PORT ?? "4173");
 const HOST = "127.0.0.1";
 const DEFAULT_MINT = "71utbKBwCwL22NsJZzeuR23K3BTZaTmzj3X7kzTzpump";
-const DEFAULT_WALLET = "AgyEoDHFxZvkYFaHgUZ5TcFk6VRB3idzD4NaPmRjDsZ8";
 const DEFAULT_MODE: QueryModeId = "top-holders";
 const DEFAULT_LIMIT = 10;
 const MODES_JSON = JSON.stringify(QUERY_MODES);
@@ -349,7 +348,7 @@ const html = `<!doctype html>
           <p class="eyebrow">peak dashboard</p>
           <h1>Mint In. Leaderboard Up.</h1>
           <p class="hero-copy">
-            Start with a mint address. peak pulls the holder board first, then lets you pivot into reward and transfer views without leaving the same page.
+            Start with a mint address. peak pulls the holder board first, then lets you pivot into transfer views without leaving the same page.
           </p>
 
           <form id="mintGate" class="mint-gate">
@@ -375,7 +374,7 @@ const html = `<!doctype html>
             </article>
             <article class="summary-card">
               <div class="summary-label">Resolved Dev Wallet</div>
-              <div id="summaryWallet" class="summary-value">Not needed yet</div>
+              <div id="summaryWallet" class="summary-value">Auto detect</div>
             </article>
           </div>
 
@@ -388,7 +387,7 @@ const html = `<!doctype html>
             </div>
 
             <div id="walletModeControl" class="control hidden">
-              <label for="walletMode">Wallet Mode</label>
+              <label for="walletMode">Dev Wallet Address</label>
               <select id="walletMode" name="walletMode">
                 <option value="auto">Auto Detect</option>
                 <option value="manual">Enter Manually</option>
@@ -396,13 +395,21 @@ const html = `<!doctype html>
             </div>
 
             <div id="walletControl" class="control hidden">
-              <label for="wallet">Dev Wallet</label>
-              <input id="wallet" name="wallet" value="${DEFAULT_WALLET}" />
+              <label for="wallet">Dev Wallet Address</label>
+              <input id="wallet" name="wallet" value="" />
             </div>
 
             <div class="control">
               <label for="limit">Rows / Transactions To Search</label>
               <input id="limit" name="limit" type="number" min="1" max="100" value="${DEFAULT_LIMIT}" />
+            </div>
+
+            <div id="uniqueRecipientsControl" class="control hidden">
+              <label for="uniqueRecipients">Unique Recipients</label>
+              <select id="uniqueRecipients" name="uniqueRecipients">
+                <option value="false">All Transfers</option>
+                <option value="true">Consolidated</option>
+              </select>
             </div>
 
             <div id="minimumAmountControl" class="control hidden">
@@ -421,7 +428,7 @@ const html = `<!doctype html>
             <header class="board-header">
               <div>
                 <h2 id="boardTitle" class="board-title">Top Holders</h2>
-                <p id="boardCopy" class="board-copy">Largest wallets by amount held.</p>
+                <p id="boardCopy" class="board-copy">Largest non-program wallets by amount held.</p>
               </div>
             </header>
             <div class="table-wrap">
@@ -444,19 +451,13 @@ const html = `<!doctype html>
       const modeMeta = {
         "top-holders": {
           title: "Top Holders",
-          copy: "Largest wallets by amount held.",
+          copy: "Largest non-program wallets by amount held.",
           empty: "No holder data was returned for this mint.",
           columns: ["Rank", "Holder", "Amount Held"],
         },
-        "reward-summary": {
-          title: "Reward Summary",
-          copy: "Grouped outgoing reward flow by recipient.",
-          empty: "No matching reward transfers were found for this mint and wallet.",
-          columns: ["Rank", "Recipient", "Total Received", "Transfers", "Latest Payout"],
-        },
         "airdrop-filter": {
-          title: "Airdrop Filter",
-          copy: "Raw outgoing transfers from the dev wallet for this mint.",
+          title: "Transfers",
+          copy: "Outgoing token transfers from the detected or supplied dev wallet.",
           empty: "No outgoing transfers were found for this mint and wallet.",
           columns: ["Rank", "Recipient", "Amount", "From"],
         },
@@ -465,7 +466,7 @@ const html = `<!doctype html>
       const state = {
         mode: DEFAULT_MODE,
         mint: "${DEFAULT_MINT}",
-        wallet: "${DEFAULT_WALLET}",
+        wallet: "",
         resolvedWallet: "",
         resolvedMint: "",
       };
@@ -491,11 +492,26 @@ const html = `<!doctype html>
       const tabs = document.getElementById("tabs");
       const walletModeControl = document.getElementById("walletModeControl");
       const walletControl = document.getElementById("walletControl");
+      const uniqueRecipientsControl = document.getElementById("uniqueRecipientsControl");
+      const uniqueRecipientsSelect = document.getElementById("uniqueRecipients");
       const minimumAmountControl = document.getElementById("minimumAmountControl");
 
       const numberFormat = new Intl.NumberFormat("en-US", {
         maximumFractionDigits: 6,
       });
+
+      function getBoardMeta() {
+        if (state.mode === "airdrop-filter" && uniqueRecipientsSelect.value === "true") {
+          return {
+            title: "Transfers",
+            copy: "Outgoing token transfers grouped by recipient.",
+            empty: "No matching consolidated recipients were found for this mint and wallet.",
+            columns: ["Rank", "Recipient", "Total Received", "Transfers", "Latest Payout"],
+          };
+        }
+
+        return modeMeta[state.mode];
+      }
 
       function shortWallet(value) {
         if (!value) {
@@ -510,19 +526,18 @@ const html = `<!doctype html>
       }
 
       function syncControls() {
-        const isRewardSummary = state.mode === "reward-summary";
-        const isAirdropFilter = state.mode === "airdrop-filter";
+        const isTransfers = state.mode === "airdrop-filter";
+        const isUniqueRecipients = isTransfers && uniqueRecipientsSelect.value === "true";
 
-        walletModeControl.classList.toggle("hidden", !isRewardSummary);
-        minimumAmountControl.classList.toggle("hidden", !isRewardSummary);
+        walletModeControl.classList.toggle("hidden", !isTransfers);
+        uniqueRecipientsControl.classList.toggle("hidden", !isTransfers);
+        minimumAmountControl.classList.toggle("hidden", !isUniqueRecipients);
         walletControl.classList.toggle(
           "hidden",
-          !(isAirdropFilter || (isRewardSummary && walletMode.value === "manual")),
+          !(isTransfers && walletMode.value === "manual"),
         );
 
-        if (isAirdropFilter) {
-          walletInput.placeholder = "Required";
-        } else if (isRewardSummary && walletMode.value === "manual") {
+        if (isTransfers && walletMode.value === "manual") {
           walletInput.placeholder = "Enter a known dev wallet";
         } else {
           walletInput.placeholder = "Auto-detect from mint";
@@ -548,7 +563,7 @@ const html = `<!doctype html>
       }
 
       function renderTable(rows) {
-        const meta = modeMeta[state.mode];
+        const meta = getBoardMeta();
         tableHead.innerHTML = meta.columns.map((column) => "<th>" + column + "</th>").join("");
         tableBody.innerHTML = "";
 
@@ -568,7 +583,7 @@ const html = `<!doctype html>
               rank +
               '<td class="wallet" title="' + row.holder + '">' + row.holder + "</td>" +
               "<td>" + numberFormat.format(row.amountHeld) + "</td>";
-          } else if (state.mode === "reward-summary") {
+          } else if (uniqueRecipientsSelect.value === "true") {
             tr.innerHTML =
               rank +
               '<td class="wallet" title="' + row.recipient + '">' + row.recipient + "</td>" +
@@ -588,12 +603,13 @@ const html = `<!doctype html>
       }
 
       function syncSummary(payload, rowCount) {
+        const meta = getBoardMeta();
         summaryMint.textContent = shortWallet(payload.resolvedMint || state.mint);
-        summaryMode.textContent = modeMeta[state.mode].title;
+        summaryMode.textContent = meta.title;
         summaryWallet.textContent =
-          payload.resolvedWallet ? shortWallet(payload.resolvedWallet) : "Not needed";
-        boardTitle.textContent = modeMeta[state.mode].title;
-        boardCopy.textContent = modeMeta[state.mode].copy;
+          payload.resolvedWallet ? shortWallet(payload.resolvedWallet) : "Auto detect";
+        boardTitle.textContent = meta.title;
+        boardCopy.textContent = meta.copy;
         const sourceLabel = payload.source === "cache" ? "cache" : "live query";
         const generated = payload.generatedAt
           ? " Updated " + new Date(payload.generatedAt).toLocaleString() + "."
@@ -616,14 +632,18 @@ const html = `<!doctype html>
         status.textContent = "Loading leaderboard...";
 
         const shouldUseManualWallet =
-          state.mode === "airdrop-filter" ||
-          (state.mode === "reward-summary" && walletMode.value === "manual");
+          state.mode === "airdrop-filter" && walletMode.value === "manual";
+
+        if (!shouldUseManualWallet) {
+          walletInput.value = "";
+        }
 
         const params = new URLSearchParams({
           mode: state.mode,
           mintOrToken: mintValue,
           limit: limitInput.value.trim() || "${DEFAULT_LIMIT}",
           minimumAmount: minimumAmountInput.value.trim() || "0",
+          uniqueRecipients: uniqueRecipientsSelect.value,
           wallet: shouldUseManualWallet ? walletInput.value.trim() : "",
         });
 
@@ -676,6 +696,12 @@ const html = `<!doctype html>
       });
 
       walletMode.addEventListener("change", syncControls);
+      uniqueRecipientsSelect.addEventListener("change", async () => {
+        syncControls();
+        if (dashboard.classList.contains("is-visible") && state.mode === "airdrop-filter") {
+          await runCurrentMode();
+        }
+      });
       syncControls();
       renderTabs();
     </script>
@@ -709,16 +735,13 @@ const server = createServer(async (request, response) => {
     const mintOrToken = url.searchParams.get("mintOrToken")?.trim();
     const limitRaw = url.searchParams.get("limit")?.trim();
     const minimumAmountRaw = url.searchParams.get("minimumAmount")?.trim();
+    const uniqueRecipientsRaw = url.searchParams.get("uniqueRecipients")?.trim();
     const limit = Math.min(100, Math.max(1, Number(limitRaw ?? `${DEFAULT_LIMIT}`) || DEFAULT_LIMIT));
     const minimumAmount = Math.max(0, Number(minimumAmountRaw ?? "0") || 0);
+    const uniqueRecipients = uniqueRecipientsRaw === "true";
 
     if (!mintOrToken) {
       sendJson(response, 400, { error: "token URL or mint is required." });
-      return;
-    }
-
-    if (mode === "airdrop-filter" && !wallet) {
-      sendJson(response, 400, { error: "dev wallet is required for the airdrop filter." });
       return;
     }
 
@@ -729,6 +752,7 @@ const server = createServer(async (request, response) => {
         limit,
         rpcUrl: process.env.SOLANA_RPC_URL,
         minimumAmount,
+        uniqueRecipients,
       });
 
       sendJson(response, 200, payload);

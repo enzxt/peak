@@ -15,13 +15,8 @@ export const QUERY_MODES = [
   },
   {
     id: "airdrop-filter",
-    label: "Airdrop Filter",
-    description: "Find outgoing transfers for a specific mint from a dev wallet.",
-  },
-  {
-    id: "reward-summary",
-    label: "Reward Summary",
-    description: "Group outgoing transfers by recipient and total received.",
+    label: "Transfers",
+    description: "View outgoing transfers for a mint, with optional recipient consolidation.",
   },
 ] as const;
 
@@ -35,6 +30,7 @@ export async function runQueryMode(
     limit: number;
     rpcUrl?: string;
     minimumAmount?: number;
+    uniqueRecipients?: boolean;
   },
 ) {
   const resolvedToken = parseTokenUrlOrMint(input.mintOrToken);
@@ -48,6 +44,7 @@ export async function runQueryMode(
     wallet: input.wallet?.trim() || null,
     limit: input.limit,
     minimumAmount: input.minimumAmount,
+    uniqueRecipients: input.uniqueRecipients,
   };
 
   const cached = await readFreshQuerySnapshot(cacheInput);
@@ -67,21 +64,6 @@ export async function runQueryMode(
   }
 
   if (mode === "airdrop-filter") {
-    if (!input.wallet) {
-      throw new Error("Dev wallet is required for the airdrop filter.");
-    }
-
-    return writeQuerySnapshot(cacheInput, {
-      resolvedWallet: input.wallet,
-      resolvedMint: resolvedToken.mint,
-      results: await fetchAirdropResults(input.wallet, resolvedToken.mint, {
-        rpcUrl: input.rpcUrl,
-        signatureLimit: input.limit,
-      }),
-    });
-  }
-
-  if (mode === "reward-summary") {
     const resolved =
       input.wallet?.trim()
         ? {
@@ -97,18 +79,20 @@ export async function runQueryMode(
       throw new Error("Could not infer a likely dev wallet from this token.");
     }
 
-    return writeQuerySnapshot(
-      cacheInput,
-      {
-        resolvedWallet: resolved.wallet,
-        resolvedMint: resolved.mint,
-        results: await fetchRewardSummary(resolved.wallet, resolved.mint, {
+    return writeQuerySnapshot(cacheInput, {
+      resolvedWallet: resolved.wallet,
+      resolvedMint: resolvedToken.mint,
+      results: input.uniqueRecipients
+        ? await fetchRewardSummary(resolved.wallet, resolved.mint, {
           rpcUrl: input.rpcUrl,
           signatureLimit: input.limit,
           minimumAmount: input.minimumAmount,
+        })
+        : await fetchAirdropResults(resolved.wallet, resolvedToken.mint, {
+          rpcUrl: input.rpcUrl,
+          signatureLimit: input.limit,
         }),
-      },
-    );
+    });
   }
 
   throw new Error("This query mode is not implemented yet.");

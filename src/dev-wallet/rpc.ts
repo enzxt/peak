@@ -116,6 +116,8 @@ interface TokenLargestAccountsResponse {
 
 interface ParsedAccountInfoResponse {
   value: {
+    owner?: string;
+    executable?: boolean;
     data?: {
       parsed?: {
         info?: {
@@ -546,7 +548,7 @@ export async function fetchTopTokenHolders(
     rpcUrl,
   );
 
-  const largestAccounts = response.value.slice(0, limit);
+  const largestAccounts = response.value.slice(0, Math.min(50, limit + 15));
   const holders: TopTokenHolderRecord[] = [];
 
   for (const account of largestAccounts) {
@@ -564,6 +566,24 @@ export async function fetchTopTokenHolders(
       continue;
     }
 
+    const ownerAccount = await rpcCall<
+      [string, { encoding: "jsonParsed" }],
+      ParsedAccountInfoResponse
+    >(
+      "getAccountInfo",
+      [owner, { encoding: "jsonParsed" }],
+      rpcUrl,
+    );
+
+    const ownerProgramId =
+      ownerAccount.value?.owner ?? "11111111111111111111111111111111";
+    const holderType =
+      ownerProgramId === "11111111111111111111111111111111" ? "user" : "program";
+    const label =
+      holderType === "program"
+        ? "Program-Owned / Liquidity"
+        : undefined;
+
     const parsedUiAmount = Number(account.uiAmountString ?? "0");
     const amountUi = account.uiAmount ??
       (Number.isFinite(parsedUiAmount) && parsedUiAmount > 0
@@ -576,6 +596,9 @@ export async function fetchTopTokenHolders(
       amountRaw: account.amount,
       amountUi,
       decimals: account.decimals,
+      ownerProgramId,
+      holderType,
+      label,
     });
 
     await delay(100);
