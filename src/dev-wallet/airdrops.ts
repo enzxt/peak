@@ -73,5 +73,11 @@ export async function fetchAirdropResults(
     });
   }
 
-  return [...deduped.values()].sort((a, b) => b.blockTime - a.blockTime);
+  return [...deduped.values()].sort((a, b) => {
+    if (b.amount !== a.amount) {
+      return b.amount - a.amount;
+    }
+
+    return b.blockTime - a.blockTime;
+  });
 }

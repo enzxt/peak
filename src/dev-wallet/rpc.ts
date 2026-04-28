@@ -1,6 +1,7 @@
 import {
   FetchWalletTransfersOptions,
   RawWalletTransfer,
+  TopTokenHolderRecord,
   TokenAccountRecord,
 } from "./types.js";
 
@@ -103,6 +104,33 @@ interface TokenAccountsByOwnerResponse {
   }>;
 }
 
+interface TokenLargestAccountsResponse {
+  value: Array<{
+    address: string;
+    amount: string;
+    decimals: number;
+    uiAmount: number | null;
+    uiAmountString?: string;
+  }>;
+}
+
+interface ParsedAccountInfoResponse {
+  value: {
+    data?: {
+      parsed?: {
+        info?: {
+          mint?: string;
+          owner?: string;
+          tokenAmount?: {
+            amount: string;
+            decimals: number;
+          };
+        };
+      };
+    };
+  } | null;
+}
+
 interface TokenAccountContext {
   mint: string;
   owner?: string;
@@ -202,7 +230,7 @@ function parseInstructionTransfer(
   signature: string,
   slot: number,
   blockTime: number,
-  devWallet: string,
+  devWallet: string | undefined,
   tokenAccountMap: Map<string, TokenAccountContext>,
 ): RawWalletTransfer | null {
   if (!instruction.parsed?.info) {
@@ -230,13 +258,15 @@ function parseInstructionTransfer(
     const amountText = info.tokenAmount?.amount ?? info.amount ?? "0";
     const amount = Number(amountText);
     const ownerMatches =
-      sourceContext?.owner === devWallet || destinationContext?.owner === devWallet;
+      devWallet !== undefined &&
+      (sourceContext?.owner === devWallet || destinationContext?.owner === devWallet);
 
     if (!mint || !Number.isFinite(amount) || amount <= 0) {
       return null;
     }
 
     if (
+      devWallet !== undefined &&
       info.source !== devWallet &&
       info.destination !== devWallet &&
       !ownerMatches &&
@@ -270,7 +300,11 @@ function parseInstructionTransfer(
     info.destination &&
     typeof info.lamports === "number"
   ) {
-    if (info.source !== devWallet && info.destination !== devWallet) {
+    if (
+      devWallet !== undefined &&
+      info.source !== devWallet &&
+      info.destination !== devWallet
+    ) {
       return null;
     }
 
@@ -384,6 +418,87 @@ export async function fetchWalletTransfers(
   return transfers.sort((a, b) => b.blockTime - a.blockTime);
 }
 
+export async function fetchMintTransfers(
+  mint: string,
+  options: {
+    rpcUrl?: string;
+    limit?: number;
+    before?: string;
+  } = {},
+): Promise<RawWalletTransfer[]> {
+  const rpcUrl = options.rpcUrl ?? process.env.SOLANA_RPC_URL ?? DEFAULT_RPC_URL;
+  const limit = options.limit ?? 25;
+
+  const signatures = await rpcCall<
+    [string, { limit: number; before?: string }],
+    SignatureInfo[]
+  >(
+    "getSignaturesForAddress",
+    [mint, { limit, before: options.before }],
+    rpcUrl,
+  );
+
+  const successfulSignatures = signatures.filter((item) => !item.err);
+  const transactions: Array<ParsedTransactionResponse | null> = [];
+
+  for (const item of successfulSignatures) {
+    const transaction = await rpcCall<
+      [string, { encoding: "jsonParsed"; maxSupportedTransactionVersion: 0 }],
+      ParsedTransactionResponse | null
+    >(
+      "getTransaction",
+      [
+        item.signature,
+        {
+          encoding: "jsonParsed",
+          maxSupportedTransactionVersion: 0,
+        },
+      ],
+      rpcUrl,
+    );
+
+    transactions.push(transaction);
+    await delay(150);
+  }
+
+  const transfers: RawWalletTransfer[] = [];
+
+  for (const transaction of transactions) {
+    if (!transaction?.meta || transaction.meta.err) {
+      continue;
+    }
+
+    const signature = transaction.transaction.signatures[0];
+    const slot = transaction.slot;
+    const blockTime = transaction.blockTime ?? 0;
+    const memo = signatures.find((item) => item.signature === signature)?.memo ?? undefined;
+    const instructions = getAllInstructions(transaction);
+    const tokenAccountMap = buildTokenAccountMap(transaction);
+
+    for (const instruction of instructions) {
+      const transfer = parseInstructionTransfer(
+        instruction,
+        signature,
+        slot,
+        blockTime,
+        undefined,
+        tokenAccountMap,
+      );
+
+      if (!transfer || transfer.mint !== mint) {
+        continue;
+      }
+
+      transfers.push({
+        ...transfer,
+        memo,
+      });
+    }
+  }
+
+  return transfers.sort((a, b) => b.blockTime - a.blockTime);
+}
+
 export async function fetchTokenAccountsByOwner(
   owner: string,
   mint: string,
@@ -416,6 +531,57 @@ export async function fetchTokenAccountsByOwner(
       };
     })
     .filter((entry): entry is TokenAccountRecord => entry !== null);
+}
+
+export async function fetchTopTokenHolders(
+  mint: string,
+  options: { rpcUrl?: string; limit?: number } = {},
+): Promise<TopTokenHolderRecord[]> {
+  const rpcUrl = options.rpcUrl ?? process.env.SOLANA_RPC_URL ?? DEFAULT_RPC_URL;
+  const limit = Math.min(50, Math.max(1, options.limit ?? 25));
+
+  const response = await rpcCall<[string], TokenLargestAccountsResponse>(
+    "getTokenLargestAccounts",
+    [mint],
+    rpcUrl,
+  );
+
+  const largestAccounts = response.value.slice(0, limit);
+  const holders: TopTokenHolderRecord[] = [];
+
+  for (const account of largestAccounts) {
+    const parsedAccount = await rpcCall<
+      [string, { encoding: "jsonParsed" }],
+      ParsedAccountInfoResponse
+    >(
+      "getAccountInfo",
+      [account.address, { encoding: "jsonParsed" }],
+      rpcUrl,
+    );
+
+    const owner = parsedAccount.value?.data?.parsed?.info?.owner;
+    if (!owner) {
+      continue;
+    }
+
+    const parsedUiAmount = Number(account.uiAmountString ?? "0");
+    const amountUi = account.uiAmount ??
+      (Number.isFinite(parsedUiAmount) && parsedUiAmount > 0
+        ? parsedUiAmount
+        : Number(account.amount) / 10 ** account.decimals);
+
+    holders.push({
+      tokenAccount: account.address,
+      owner,
+      amountRaw: account.amount,
+      amountUi,
+      decimals: account.decimals,
+    });
+
+    await delay(100);
+  }
+
+  return holders;
 }
 
 export function formatAmountUi(amount: number, decimals: number): number {

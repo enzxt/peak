@@ -65,3 +65,11 @@ export interface TokenAccountRecord {
   amountRaw: string;
   decimals: number;
 }
+
+export interface TopTokenHolderRecord {
+  tokenAccount: string;
+  owner: string;
+  amountRaw: string;
+  amountUi: number;
+  decimals: number;
+}

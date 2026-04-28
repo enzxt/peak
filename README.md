@@ -28,6 +28,7 @@ Version 1 focuses on a narrow system we can explain clearly and operate reliably
 - [docs/tokenomics.md](docs/tokenomics.md) defines the v1 reward model and design constraints.
 - [docs/roadmap.md](docs/roadmap.md) outlines the phased rollout and public development plan.
 - [docs/tools.md](docs/tools.md) tracks the working query tools saved in this repo.
+- [docs/data-refresh-strategy.md](docs/data-refresh-strategy.md) explains the snapshot/caching plan for query-heavy views.
 
 ## Public build philosophy
 
@@ -44,3 +45,6 @@ As the project evolves, this repo should include both the app and the underlying
 
 RPC keys and other local secrets should stay in `.env`, which is ignored by git.
 Use [.env.example](.env.example) as the public template.
+
+Local cached query snapshots are written to `local-data/`, which is also ignored by git.
+That keeps coin-specific test data out of the reusable template while letting the code stay generic.
