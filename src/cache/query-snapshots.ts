@@ -55,7 +55,7 @@ function buildCacheKey(input: QuerySnapshotKeyInput): string {
   const minAmount = Number(input.minimumAmount ?? 0);
 
   return [
-    "v2",
+    "v3",
     input.mode,
     `mint-${sanitizeSegment(input.mint)}`,
     `wallet-${wallet}`,

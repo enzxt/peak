@@ -31,6 +31,7 @@ export async function runQueryMode(
     rpcUrl?: string;
     minimumAmount?: number;
     uniqueRecipients?: boolean;
+    bypassCache?: boolean;
   },
 ) {
   const resolvedToken = parseTokenUrlOrMint(input.mintOrToken);
@@ -47,9 +48,11 @@ export async function runQueryMode(
     uniqueRecipients: input.uniqueRecipients,
   };
 
-  const cached = await readFreshQuerySnapshot(cacheInput);
-  if (cached) {
-    return cached;
+  if (!input.bypassCache) {
+    const cached = await readFreshQuerySnapshot(cacheInput);
+    if (cached) {
+      return cached;
+    }
   }
 
   if (mode === "top-holders") {

@@ -1,3 +1,7 @@
+import {
+  fetchLiquidityReserveHints,
+  matchesLiquidityReserve,
+} from "./liquidity-sources.js";
 import { fetchTopTokenHolders } from "./rpc.js";
 
 export interface TopHolderRow {
@@ -20,9 +24,11 @@ export async function fetchTopHolders(
     rpcUrl: options.rpcUrl,
     limit: Math.min(50, (options.limit ?? 25) + 15),
   });
+  const liquidityHints = await fetchLiquidityReserveHints(mint);
 
   return holders
     .filter((holder) => holder.holderType === "user")
+    .filter((holder) => !matchesLiquidityReserve(holder.amountUi, liquidityHints))
     .slice(0, options.limit ?? 25)
     .map((holder, index) => ({
       rank: index + 1,

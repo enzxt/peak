@@ -1,5 +1,6 @@
 export * from "./classify.js";
 export * from "./airdrops.js";
+export * from "./liquidity-sources.js";
 export * from "./normalize.js";
 export * from "./public-feed.js";
 export * from "./reward-summary.js";

@@ -302,6 +302,14 @@ const html = `<!doctype html>
         text-overflow: ellipsis;
       }
 
+      .copyable {
+        cursor: pointer;
+      }
+
+      .copyable:hover {
+        color: white;
+      }
+
       .empty {
         padding: 22px;
         color: var(--muted);
@@ -420,6 +428,10 @@ const html = `<!doctype html>
             <div class="control control-actions">
               <button id="querySubmit" type="submit">Run View</button>
             </div>
+
+            <div class="control control-actions">
+              <button id="refreshSubmit" type="button">Refresh Live</button>
+            </div>
           </form>
 
           <div id="status" class="status"></div>
@@ -480,6 +492,7 @@ const html = `<!doctype html>
       const limitInput = document.getElementById("limit");
       const minimumAmountInput = document.getElementById("minimumAmount");
       const querySubmit = document.getElementById("querySubmit");
+      const refreshSubmit = document.getElementById("refreshSubmit");
       const mintSubmit = document.getElementById("mintSubmit");
       const status = document.getElementById("status");
       const summaryMint = document.getElementById("summaryMint");
@@ -523,6 +536,29 @@ const html = `<!doctype html>
         }
 
         return value.slice(0, 6) + "..." + value.slice(-6);
+      }
+
+      async function copyText(value) {
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(value);
+          return;
+        }
+
+        const textArea = document.createElement("textarea");
+        textArea.value = value;
+        textArea.setAttribute("readonly", "");
+        textArea.style.position = "absolute";
+        textArea.style.left = "-9999px";
+        document.body.appendChild(textArea);
+        textArea.select();
+        textArea.setSelectionRange(0, textArea.value.length);
+
+        const succeeded = document.execCommand("copy");
+        document.body.removeChild(textArea);
+
+        if (!succeeded) {
+          throw new Error("copy failed");
+        }
       }
 
       function syncControls() {
@@ -581,19 +617,19 @@ const html = `<!doctype html>
           if (state.mode === "top-holders") {
             tr.innerHTML =
               rank +
-              '<td class="wallet" title="' + row.holder + '">' + row.holder + "</td>" +
+              '<td class="wallet copyable" data-copy="' + row.holder + '" title="Click to copy">' + row.holder + "</td>" +
               "<td>" + numberFormat.format(row.amountHeld) + "</td>";
           } else if (uniqueRecipientsSelect.value === "true") {
             tr.innerHTML =
               rank +
-              '<td class="wallet" title="' + row.recipient + '">' + row.recipient + "</td>" +
+              '<td class="wallet copyable" data-copy="' + row.recipient + '" title="Click to copy">' + row.recipient + "</td>" +
               "<td>" + numberFormat.format(row.totalReceived) + "</td>" +
               "<td>" + row.transferCount + "</td>" +
               "<td>" + numberFormat.format(row.latestAmount) + "</td>";
           } else {
             tr.innerHTML =
               rank +
-              '<td class="wallet" title="' + row.recipient + '">' + row.recipient + "</td>" +
+              '<td class="wallet copyable" data-copy="' + row.recipient + '" title="Click to copy">' + row.recipient + "</td>" +
               "<td>" + numberFormat.format(row.amount) + "</td>" +
               "<td>dev wallet</td>";
           }
@@ -605,9 +641,18 @@ const html = `<!doctype html>
       function syncSummary(payload, rowCount) {
         const meta = getBoardMeta();
         summaryMint.textContent = shortWallet(payload.resolvedMint || state.mint);
+        summaryMint.setAttribute("data-copy", payload.resolvedMint || state.mint);
+        summaryMint.classList.add("copyable");
         summaryMode.textContent = meta.title;
         summaryWallet.textContent =
           payload.resolvedWallet ? shortWallet(payload.resolvedWallet) : "Auto detect";
+        if (payload.resolvedWallet) {
+          summaryWallet.setAttribute("data-copy", payload.resolvedWallet);
+          summaryWallet.classList.add("copyable");
+        } else {
+          summaryWallet.removeAttribute("data-copy");
+          summaryWallet.classList.remove("copyable");
+        }
         boardTitle.textContent = meta.title;
         boardCopy.textContent = meta.copy;
         const sourceLabel = payload.source === "cache" ? "cache" : "live query";
@@ -617,7 +662,8 @@ const html = `<!doctype html>
         status.textContent = "Loaded " + rowCount + " row(s) from " + sourceLabel + "." + generated;
       }
 
-      async function runCurrentMode() {
+      async function runCurrentMode(options = {}) {
+        const bypassCache = options.bypassCache === true;
         const mintValue = mintControl.value.trim();
         if (!mintValue) {
           status.textContent = "Mint address or token URL is required.";
@@ -628,8 +674,9 @@ const html = `<!doctype html>
         state.wallet = walletInput.value.trim();
 
         querySubmit.disabled = true;
+        refreshSubmit.disabled = true;
         mintSubmit.disabled = true;
-        status.textContent = "Loading leaderboard...";
+        status.textContent = bypassCache ? "Refreshing live data..." : "Loading leaderboard...";
 
         const shouldUseManualWallet =
           state.mode === "airdrop-filter" && walletMode.value === "manual";
@@ -644,6 +691,7 @@ const html = `<!doctype html>
           limit: limitInput.value.trim() || "${DEFAULT_LIMIT}",
           minimumAmount: minimumAmountInput.value.trim() || "0",
           uniqueRecipients: uniqueRecipientsSelect.value,
+          refresh: bypassCache ? "true" : "false",
           wallet: shouldUseManualWallet ? walletInput.value.trim() : "",
         });
 
@@ -677,6 +725,7 @@ const html = `<!doctype html>
           tableBody.innerHTML = "";
         } finally {
           querySubmit.disabled = false;
+          refreshSubmit.disabled = false;
           mintSubmit.disabled = false;
         }
       }
@@ -695,11 +744,34 @@ const html = `<!doctype html>
         await runCurrentMode();
       });
 
+      refreshSubmit.addEventListener("click", async () => {
+        await runCurrentMode({ bypassCache: true });
+      });
+
       walletMode.addEventListener("change", syncControls);
       uniqueRecipientsSelect.addEventListener("change", async () => {
         syncControls();
         if (dashboard.classList.contains("is-visible") && state.mode === "airdrop-filter") {
           await runCurrentMode();
+        }
+      });
+
+      document.addEventListener("click", async (event) => {
+        const target = event.target.closest("[data-copy]");
+        if (!target) {
+          return;
+        }
+
+        const value = target.getAttribute("data-copy");
+        if (!value) {
+          return;
+        }
+
+        try {
+          await copyText(value);
+          status.textContent = "Copied: " + shortWallet(value);
+        } catch {
+          status.textContent = "Could not copy that value.";
         }
       });
       syncControls();
@@ -736,9 +808,11 @@ const server = createServer(async (request, response) => {
     const limitRaw = url.searchParams.get("limit")?.trim();
     const minimumAmountRaw = url.searchParams.get("minimumAmount")?.trim();
     const uniqueRecipientsRaw = url.searchParams.get("uniqueRecipients")?.trim();
+    const refreshRaw = url.searchParams.get("refresh")?.trim();
     const limit = Math.min(100, Math.max(1, Number(limitRaw ?? `${DEFAULT_LIMIT}`) || DEFAULT_LIMIT));
     const minimumAmount = Math.max(0, Number(minimumAmountRaw ?? "0") || 0);
     const uniqueRecipients = uniqueRecipientsRaw === "true";
+    const bypassCache = refreshRaw === "true";
 
     if (!mintOrToken) {
       sendJson(response, 400, { error: "token URL or mint is required." });
@@ -753,6 +827,7 @@ const server = createServer(async (request, response) => {
         rpcUrl: process.env.SOLANA_RPC_URL,
         minimumAmount,
         uniqueRecipients,
+        bypassCache,
       });
 
       sendJson(response, 200, payload);
